@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PatchOp } from '../merge/rfc6902';
 import type { JsonValue } from '../merge/types';
+import type { CompiledSchema } from '../merge/schema';
+import { validateMerged } from '../merge/schema';
+import { buildPointerLines, resolveLine } from '../merge/jsonLineMap';
+import SchemaPanel from './SchemaPanel';
+import ValidationIssues from './ValidationIssues';
 
 interface Props {
   merged: JsonValue;
   patch: PatchOp[];
+  schemaEnabled: boolean;
+  schema: CompiledSchema | null;
+  onSchemaEnabledChange: (v: boolean) => void;
+  onSchemaChange: (s: CompiledSchema | null) => void;
   onBack: () => void;
   onRestart: () => void;
 }
@@ -28,11 +37,65 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export default function OutputStage({ merged, patch, onBack, onRestart }: Props) {
+/** 带行号的 JSON 结果视图，支持按行高亮并滚动定位 */
+function JsonResultView({
+  text,
+  highlightLine,
+  lineRef,
+}: {
+  text: string;
+  highlightLine: number | null;
+  lineRef: React.MutableRefObject<(HTMLDivElement | null)[]>;
+}) {
+  const lines = useMemo(() => text.split('\n'), [text]);
+  return (
+    <div className="json-lines">
+      {lines.map((line, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            lineRef.current[i] = el;
+          }}
+          className={`json-line${i === highlightLine ? ' hit' : ''}`}
+        >
+          <span className="ln">{i + 1}</span>
+          <span className="code">{line || ' '}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function OutputStage({
+  merged,
+  patch,
+  schemaEnabled,
+  schema,
+  onSchemaEnabledChange,
+  onSchemaChange,
+  onBack,
+  onRestart,
+}: Props) {
   const [toast, setToast] = useState<string | null>(null);
+  const [hitLine, setHitLine] = useState<number | null>(null);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const mergedText = JSON.stringify(merged, null, 2);
   const patchText = JSON.stringify(patch, null, 2);
+
+  const groups = useMemo(
+    () => (schemaEnabled && schema ? validateMerged(schema, merged) : []),
+    [schemaEnabled, schema, merged],
+  );
+  const errorCount = groups.reduce((n, g) => n + g.issues.length, 0);
+
+  // JSON Pointer → 渲染行号
+  const pointerLines = useMemo(() => buildPointerLines(mergedText), [mergedText]);
+
+  // Schema 变化或重新生成结果后清除旧高亮
+  useEffect(() => {
+    setHitLine(null);
+  }, [schema, merged]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -43,12 +106,28 @@ export default function OutputStage({ merged, patch, onBack, onRestart }: Props)
     showToast((await copyText(text)) ? `${label}已复制到剪贴板` : '复制失败，请手动选择复制');
   };
 
+  const handleLocate = (instancePath: string) => {
+    const ln = resolveLine(pointerLines, instancePath);
+    if (ln === null) return;
+    setHitLine(ln);
+    lineRefs.current[ln]?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  };
+
+  const showValidation = schemaEnabled && schema !== null;
+
   return (
     <>
+      <SchemaPanel
+        enabled={schemaEnabled}
+        schema={schema}
+        onEnabledChange={onSchemaEnabledChange}
+        onSchemaChange={onSchemaChange}
+      />
+      {showValidation && <ValidationIssues groups={groups} onLocate={handleLocate} />}
       <div className="output-grid">
         <div className="output-panel">
           <h3>合并结果 JSON</h3>
-          <pre>{mergedText}</pre>
+          <JsonResultView text={mergedText} highlightLine={hitLine} lineRef={lineRefs} />
           <div className="panel-actions">
             <button className="small" onClick={() => void handleCopy(mergedText, '合并结果 ')}>
               复制
@@ -56,6 +135,14 @@ export default function OutputStage({ merged, patch, onBack, onRestart }: Props)
             <button className="small" onClick={() => download('merged.json', mergedText)}>
               下载 merged.json
             </button>
+            {showValidation && errorCount > 0 && (
+              <span
+                className="download-warn"
+                title="合并结果未通过 Schema 校验，仍可下载；点击错误路径可定位"
+              >
+                ⚠ {errorCount} 个校验错误
+              </span>
+            )}
           </div>
         </div>
         <div className="output-panel">

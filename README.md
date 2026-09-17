@@ -1,6 +1,6 @@
 # JSON 三方合并台
 
-一个纯本地的 JSON 三方合并工具（React + TypeScript + Vite）。粘贴或导入**基线（Base）**、**当前分支（Ours）**、**目标分支（Theirs）**三份 JSON，按 JSON Pointer 递归执行三方合并，在树形视图中定位并解决冲突，最终导出合并 JSON 与相对基线的 RFC 6902 补丁。
+一个纯本地的 JSON 三方合并工具（React + TypeScript + Vite）。粘贴或导入**基线（Base）**、**当前分支（Ours）**、**目标分支（Theirs）**三份 JSON，按 JSON Pointer 递归执行三方合并，在树形视图中定位并解决冲突，最终导出合并 JSON 与相对基线的 RFC 6902 补丁；输出阶段还可挂载一份 **JSON Schema（Draft 2020-12）**，使用 [Ajv](https://ajv.js.org/) 对合并结果做约束校验。
 
 ## 快速启动（Docker Compose，一条命令）
 
@@ -30,6 +30,12 @@ npm test           # 运行合并逻辑单元测试（vitest）
    - 右侧面板显示冲突的三方值（基线 / 当前 / 目标）与冲突原因，可选择「采用当前分支」「采用目标分支」，或填写自定义 JSON 值；
    - 顶部进度条显示已解决数量，全部解决后「生成合并结果」按钮可用。
 3. **导出结果**：查看合并后的 JSON 与相对基线的 RFC 6902 JSON Patch，支持一键复制或下载为 `merged.json` / `patch.json`。
+4. **（可选）Schema 约束校验**：在输出页顶部勾选「JSON Schema 约束校验」：
+   - 粘贴或「导入文件」载入一份 **Draft 2020-12** Schema，点击「应用 Schema」即对合并结果执行校验（支持文档内 `$ref` 与 `format` 等标准关键字）；
+   - 错误按 **JSON Pointer（instancePath）分组**展示，每条显示关键字（keyword）、消息（message）与参数（params，如 `missingProperty`、`allowedValues`）；
+   - 点击错误前的 **JSON Pointer 路径**，可直接在左侧合并结果视图中滚动并高亮对应值；
+   - Schema JSON 解析失败、或包含**无法解析的本地 `$ref`** 时会给出明确错误提示，且**不会覆盖上一次有效的 Schema**（仍按旧 Schema 校验）；
+   - 可随时取消勾选关闭校验；**开启校验且存在错误时仍允许下载**，下载按钮旁会显示「⚠ N 个校验错误」警示。
 
 ## 合并规则
 
@@ -48,8 +54,9 @@ npm test           # 运行合并逻辑单元测试（vitest）
 
 ## 输出说明
 
-- **合并结果 JSON**：应用所有自动合并与冲突解决后的完整文档。
+- **合并结果 JSON**：应用所有自动合并与冲突解决后的完整文档（带行号显示，便于按 JSON Pointer 定位）。
 - **RFC 6902 补丁**：`基线 → 合并结果` 的 JSON Patch（`add` / `remove` / `replace`），路径按 RFC 6901 转义（`~` → `~0`，`/` → `~1`）。
+- **Schema 校验**：可选的 Draft 2020-12 约束校验（Ajv，`allErrors` 模式），错误按 instancePath 分组，不阻断下载，仅在下载旁给出错误数警示。
 
 ## 项目结构
 
@@ -59,8 +66,10 @@ src/
 │   ├── threeWayMerge.ts    # 三方合并（生成合并树 + 冲突列表）
 │   ├── rfc6902.ts          # 基线 → 结果的 JSON Patch 生成
 │   ├── pointer.ts          # RFC 6901 JSON Pointer 工具
+│   ├── schema.ts           # Ajv Draft 2020-12 编译 / 校验 / 错误分组
+│   ├── jsonLineMap.ts      # JSON Pointer → 结果视图行号映射（点击定位）
 │   ├── deepEqual.ts        # 键序无关的深比较
-│   └── merge.test.ts       # 单元测试
-├── components/             # 输入 / 合并树 / 冲突面板 / 输出 四个界面组件
+│   └── *.test.ts           # 单元测试（vitest）
+├── components/             # 输入 / 合并树 / 冲突面板 / 输出 / Schema 面板等界面组件
 └── App.tsx                 # 三阶段流程编排
 ```

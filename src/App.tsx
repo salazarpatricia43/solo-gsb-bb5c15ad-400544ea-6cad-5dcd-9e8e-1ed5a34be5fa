@@ -10,6 +10,7 @@ import {
   type Resolutions,
 } from './merge/threeWayMerge';
 import { isAbsent, type JsonValue } from './merge/types';
+import type { CompiledSchema } from './merge/schema';
 
 type Stage = 'input' | 'merge' | 'output';
 
@@ -20,6 +21,9 @@ export default function App() {
   const [resolutions, setResolutions] = useState<Resolutions>({});
   const [merged, setMerged] = useState<JsonValue | null>(null);
   const [patch, setPatch] = useState<PatchOp[]>([]);
+  // Schema 校验状态在「返回调整 ↔ 输出」之间保留，重新开始时清空
+  const [schemaEnabled, setSchemaEnabled] = useState(false);
+  const [schema, setSchema] = useState<CompiledSchema | null>(null);
 
   const handleMerge = (base: JsonValue, ours: JsonValue, theirs: JsonValue) => {
     setBaseDoc(base);
@@ -46,6 +50,8 @@ export default function App() {
     setResolutions({});
     setMerged(null);
     setPatch([]);
+    setSchema(null);
+    setSchemaEnabled(false);
   };
 
   return (
@@ -75,6 +81,10 @@ export default function App() {
           <OutputStage
             merged={merged}
             patch={patch}
+            schemaEnabled={schemaEnabled}
+            schema={schema}
+            onSchemaEnabledChange={setSchemaEnabled}
+            onSchemaChange={setSchema}
             onBack={() => setStage('merge')}
             onRestart={handleRestart}
           />
